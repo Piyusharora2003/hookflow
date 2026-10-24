@@ -9,3 +9,13 @@ spring:
 
 database:
   type: ${DATABASE_TYPE}
+
+hookflow:
+  cache:
+    l1:
+      max-size: ${HOOKFLOW_CACHE_L1_MAX_SIZE:1000}
+      ttl-seconds: ${HOOKFLOW_CACHE_L1_TTL_SECONDS:120}
+    l2:
+      enabled: ${HOOKFLOW_CACHE_L2_ENABLED:false}
+      ttl-seconds: ${HOOKFLOW_CACHE_L2_TTL_SECONDS:300}
+      key-prefix: ${HOOKFLOW_CACHE_L2_PREFIX:hookflow:apikey:}
