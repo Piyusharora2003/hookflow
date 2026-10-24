@@ -1,0 +1,33 @@
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE & Editor files (at workspace root & subfolders)
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# Node & Frontend
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.npm/
+
+# Java & Gradle
+.gradle/
+build/
+out/
+!**/gradle/wrapper/gradle-wrapper.jar
+
+# Environment & Secret files
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs
+*.log
