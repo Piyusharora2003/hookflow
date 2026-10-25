@@ -2,6 +2,7 @@ package com.hookflow.hookflow.auth.cache;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Expiry;
 import com.hookflow.hookflow.auth.model.ApiKeyInfo;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -19,11 +20,30 @@ public class CaffeineApiKeyCache {
 
     public CaffeineApiKeyCache(
             @Value("${hookflow.cache.l1.max-size:1000}") long maxSize,
-            @Value("${hookflow.cache.l1.ttl-seconds:120}") long ttlSeconds
+            @Value("${hookflow.cache.l1.ttl-seconds:120}") long ttlSeconds,
+            @Value("${hookflow.cache.negative-ttl-seconds:30}") long negativeTtlSeconds
     ) {
+        long ttlNanos = Duration.ofSeconds(ttlSeconds).toNanos();
+        long negativeTtlNanos = Duration.ofSeconds(negativeTtlSeconds).toNanos();
+
         this.cache = Caffeine.newBuilder()
                 .maximumSize(maxSize)
-                .expireAfterWrite(Duration.ofSeconds(ttlSeconds))
+                .expireAfter(new Expiry<String, ApiKeyInfo>() {
+                    @Override
+                    public long expireAfterCreate(String key, ApiKeyInfo value, long currentTime) {
+                        return value.isNotFound() ? negativeTtlNanos : ttlNanos;
+                    }
+
+                    @Override
+                    public long expireAfterUpdate(String key, ApiKeyInfo value, long currentTime, long currentDuration) {
+                        return value.isNotFound() ? negativeTtlNanos : ttlNanos;
+                    }
+
+                    @Override
+                    public long expireAfterRead(String key, ApiKeyInfo value, long currentTime, long currentDuration) {
+                        return currentDuration;
+                    }
+                })
                 .build();
     }
 

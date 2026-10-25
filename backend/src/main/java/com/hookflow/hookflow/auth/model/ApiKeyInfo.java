@@ -1,6 +1,7 @@
 package com.hookflow.hookflow.auth.model;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.Set;
 import java.util.UUID;
 
@@ -14,6 +15,18 @@ public record ApiKeyInfo(
         Instant expiresAt,
         Set<String> allowedDestinations
 ) {
+    public static final ApiKeyInfo NOT_FOUND = new ApiKeyInfo(
+            null,
+            null,
+            "NOT_FOUND",
+            null,
+            Collections.emptySet()
+    );
+
+    public boolean isNotFound() {
+        return "NOT_FOUND".equalsIgnoreCase(status);
+    }
+
     public boolean isActive() {
         return "ACTIVE".equalsIgnoreCase(status)
                 && (expiresAt == null || expiresAt.isAfter(Instant.now()));

@@ -23,17 +23,20 @@ public class RedisApiKeyCache {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final long ttlSeconds;
+    private final long negativeTtlSeconds;
     private final String keyPrefix;
 
     public RedisApiKeyCache(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
             @Value("${hookflow.cache.l2.ttl-seconds:300}") long ttlSeconds,
+            @Value("${hookflow.cache.negative-ttl-seconds:30}") long negativeTtlSeconds,
             @Value("${hookflow.cache.l2.key-prefix:hookflow:apikey:}") String keyPrefix
     ) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.ttlSeconds = ttlSeconds;
+        this.negativeTtlSeconds = negativeTtlSeconds;
         this.keyPrefix = keyPrefix;
     }
 
@@ -55,10 +58,11 @@ public class RedisApiKeyCache {
         try {
             String redisKey = keyPrefix + keyHash;
             String json = objectMapper.writeValueAsString(apiKeyInfo);
+            long effectiveTtl = apiKeyInfo.isNotFound() ? negativeTtlSeconds : ttlSeconds;
             redisTemplate.opsForValue().set(
                     redisKey,
                     json,
-                    Duration.ofSeconds(ttlSeconds)
+                    Duration.ofSeconds(effectiveTtl)
             );
         } catch (Exception e) {
             log.warn("Failed to write API key to Redis L2 cache: {}", e.getMessage());

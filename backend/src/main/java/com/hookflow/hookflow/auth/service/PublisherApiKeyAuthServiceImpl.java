@@ -46,13 +46,23 @@ public class PublisherApiKeyAuthServiceImpl implements ApiKeyAuthService {
         // 1. Try L1 (Caffeine)
         Optional<ApiKeyInfo> cached = l1Cache.get(keyHash);
         if (cached.isPresent()) {
+            ApiKeyInfo info = cached.get();
+            if (info.isNotFound()) {
+                log.debug("Negative cache hit in L1 cache [keyHash={}]", keyHash);
+                return Optional.empty();
+            }
             log.debug("API key found in L1 cache [keyHash={}]", keyHash);
         } else if (l2Cache.isPresent()) {
             // 2. Try L2 (Redis) if L1 miss, populate L1 on hit
             cached = l2Cache.get().get(keyHash);
             if (cached.isPresent()) {
+                ApiKeyInfo info = cached.get();
+                l1Cache.put(keyHash, info);
+                if (info.isNotFound()) {
+                    log.debug("Negative cache hit in L2 cache [keyHash={}]", keyHash);
+                    return Optional.empty();
+                }
                 log.debug("API key found in L2 cache [keyHash={}]", keyHash);
-                l1Cache.put(keyHash, cached.get());
             }
         }
 
@@ -68,17 +78,23 @@ public class PublisherApiKeyAuthServiceImpl implements ApiKeyAuthService {
         // 3. Query storage via port, populate both caches
         log.debug("API key cache miss across all tiers, querying storage [keyHash={}]", keyHash);
         Optional<ApiKeyInfo> dbInfo = apiKeyLookupPort.findByKeyHash(keyHash);
-        dbInfo.ifPresent(info -> {
-            l1Cache.put(keyHash, info);
-            l2Cache.ifPresent(l2 -> l2.put(keyHash, info));
-        });
-
-        if (dbInfo.isPresent() && !dbInfo.get().isActive()) {
-            log.warn("Database API key is inactive or expired [id={}, status={}]", dbInfo.get().id(), dbInfo.get().status());
+        if (dbInfo.isEmpty()) {
+            log.debug("API key not found in storage, caching negative result [keyHash={}]", keyHash);
+            l1Cache.put(keyHash, ApiKeyInfo.NOT_FOUND);
+            l2Cache.ifPresent(l2 -> l2.put(keyHash, ApiKeyInfo.NOT_FOUND));
             return Optional.empty();
         }
 
-        return dbInfo;
+        ApiKeyInfo info = dbInfo.get();
+        l1Cache.put(keyHash, info);
+        l2Cache.ifPresent(l2 -> l2.put(keyHash, info));
+
+        if (!info.isActive()) {
+            log.warn("Database API key is inactive or expired [id={}, status={}]", info.id(), info.status());
+            return Optional.empty();
+        }
+
+        return Optional.of(info);
     }
 
     @Override
