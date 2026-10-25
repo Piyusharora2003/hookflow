@@ -1,8 +1,7 @@
 package com.hookflow.hookflow.auth.cache;
 
 import com.hookflow.hookflow.auth.model.ApiKeyInfo;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -16,11 +15,10 @@ import java.util.Optional;
  * Distributed L2 cache implementation backed by Redis.
  * Only loaded when hookflow.cache.l2.enabled=true.
  */
+@Slf4j
 @Component
 @ConditionalOnProperty(prefix = "hookflow.cache.l2", name = "enabled", havingValue = "true")
 public class RedisApiKeyCache {
-
-    private static final Logger log = LoggerFactory.getLogger(RedisApiKeyCache.class);
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;

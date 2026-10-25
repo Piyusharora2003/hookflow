@@ -8,6 +8,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
@@ -29,6 +30,7 @@ import java.util.Optional;
 /**
  * Filter that authenticates Bearer API keys strictly for the /v1/events publisher endpoint.
  */
+@Slf4j
 @Component
 public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
@@ -99,6 +101,7 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private void sendUnauthorized(HttpServletResponse response, String requestId, String detail) throws IOException {
+        log.warn("Authentication failed [requestId={}]: {}", requestId, detail);
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
