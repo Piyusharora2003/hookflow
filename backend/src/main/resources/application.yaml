@@ -20,3 +20,15 @@ hookflow:
       enabled: ${HOOKFLOW_CACHE_L2_ENABLED:false}
       ttl-seconds: ${HOOKFLOW_CACHE_L2_TTL_SECONDS:300}
       key-prefix: ${HOOKFLOW_CACHE_L2_PREFIX:hookflow:apikey:}
+  queue:
+    type: ${HOOKFLOW_QUEUE_TYPE:sqs}
+    name: ${HOOKFLOW_QUEUE_NAME:hookflow-events}
+    retry:
+      max-attempts: ${HOOKFLOW_QUEUE_RETRY_MAX_ATTEMPTS:3}
+      initial-delay-ms: ${HOOKFLOW_QUEUE_RETRY_INITIAL_DELAY_MS:500}
+      multiplier: ${HOOKFLOW_QUEUE_RETRY_MULTIPLIER:2.0}
+      max-delay-ms: ${HOOKFLOW_QUEUE_RETRY_MAX_DELAY_MS:5000}
+    sqs:
+      region: ${HOOKFLOW_QUEUE_SQS_REGION:us-east-1}
+      endpoint: ${HOOKFLOW_QUEUE_SQS_ENDPOINT:}
+      queue-url: ${HOOKFLOW_QUEUE_SQS_QUEUE_URL:}
