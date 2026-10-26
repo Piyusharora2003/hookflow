@@ -8,7 +8,13 @@ spring:
     driver-class-name: ${DATABASE_DRIVER_CLASS_NAME}
 
 database:
-  type: ${DATABASE_TYPE}
+  type: ${DATABASE_TYPE:postgres}
+
+mybatis:
+  mapper-locations: classpath:mapper/${database.type}/**/*.xml
+  type-handlers-package: com.hookflow.hookflow.common.mybatis
+  configuration:
+    map-underscore-to-camel-case: true
 
 hookflow:
   cache:

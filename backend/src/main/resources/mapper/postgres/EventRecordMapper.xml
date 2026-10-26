@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hookflow.hookflow.publisher.persistence.adapter.postgres.EventRecordMapper">
+
+    <resultMap id="EventRecordResultMap" type="com.hookflow.hookflow.publisher.persistence.model.EventRecord">
+        <id property="id" column="id"/>
+        <result property="requestId" column="request_id"/>
+        <result property="eventType" column="event_type"/>
+        <result property="destination" column="destination"/>
+        <result property="payload" column="payload" typeHandler="com.hookflow.hookflow.common.mybatis.JsonbTypeHandler"/>
+        <result property="tags" column="tags" typeHandler="com.hookflow.hookflow.common.mybatis.JsonbListTypeHandler"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="occurredAt" column="occurred_at"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO events (
+            request_id,
+            event_type,
+            destination,
+            payload,
+            tags,
+            status,
+            created_at,
+            occurred_at
+        ) VALUES (
+            #{requestId},
+            #{eventType},
+            #{destination},
+            #{payload, typeHandler=com.hookflow.hookflow.common.mybatis.JsonbTypeHandler},
+            #{tags, typeHandler=com.hookflow.hookflow.common.mybatis.JsonbListTypeHandler},
+            #{status},
+            #{createdAt},
+            #{occurredAt}
+        )
+    </insert>
+
+    <update id="updateStatus">
+        UPDATE events
+        SET status = #{status}
+        WHERE id = #{id}
+    </update>
+
+    <select id="findById" resultMap="EventRecordResultMap">
+        SELECT
+            id,
+            request_id,
+            event_type,
+            destination,
+            payload,
+            tags,
+            status,
+            created_at,
+            occurred_at
+        FROM events
+        WHERE id = #{id}
+    </select>
+
+</mapper>
