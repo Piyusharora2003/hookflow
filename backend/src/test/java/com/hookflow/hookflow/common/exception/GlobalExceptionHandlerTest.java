@@ -38,4 +38,17 @@ class GlobalExceptionHandlerTest {
         assertEquals("QUEUE_PUBLISH_FAILED", response.getBody().error());
         assertEquals(503, response.getBody().status());
     }
+
+    @Test
+    void testHandleEventPersistenceException() {
+        com.hookflow.hookflow.publisher.persistence.exception.EventPersistenceException exception =
+                new com.hookflow.hookflow.publisher.persistence.exception.EventPersistenceException("DB connection error");
+        ResponseEntity<ErrorResponse> response = exceptionHandler.handleEventPersistenceException(exception);
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals("req_err_789", response.getBody().requestId());
+        assertEquals("EVENT_PERSISTENCE_FAILED", response.getBody().error());
+        assertEquals(500, response.getBody().status());
+    }
 }
