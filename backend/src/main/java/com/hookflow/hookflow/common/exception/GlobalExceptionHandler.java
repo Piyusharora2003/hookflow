@@ -2,9 +2,10 @@ package com.hookflow.hookflow.common.exception;
 
 import com.hookflow.hookflow.common.queue.QueuePublishException;
 import com.hookflow.hookflow.filter.RequestIdFilter;
+import com.hookflow.hookflow.publisher.exception.IdempotencyConflictException;
+import com.hookflow.hookflow.publisher.persistence.exception.EventPersistenceException;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
-import com.hookflow.hookflow.publisher.persistence.exception.EventPersistenceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -15,6 +16,22 @@ import java.time.Instant;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ErrorResponse> handleIdempotencyConflictException(IdempotencyConflictException ex) {
+        String requestId = MDC.get(RequestIdFilter.MDC_REQUEST_ID_KEY);
+        log.warn("Idempotency conflict [requestId={}, key={}]: {}", requestId, ex.getIdempotencyKey(), ex.getMessage());
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                requestId,
+                "IDEMPOTENCY_KEY_CONFLICT",
+                ex.getMessage(),
+                Instant.now(),
+                HttpStatus.CONFLICT.value()
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
 
     @ExceptionHandler(EventPersistenceException.class)
     public ResponseEntity<ErrorResponse> handleEventPersistenceException(EventPersistenceException ex) {

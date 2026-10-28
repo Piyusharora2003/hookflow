@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Data
 @Builder
@@ -16,13 +17,16 @@ import java.util.Map;
 @AllArgsConstructor
 public class EventRecord {
 
-    private Long id;
+    private UUID id;
+    private UUID tenantId;
+    private String idempotencyKey;
     private String requestId;
     private String eventType;
     private String destination;
     private Map<String, Object> payload;
     private List<String> tags;
     private EventStatus status;
-    private Instant createdAt;
     private Instant occurredAt;
+    private Instant createdAt;
+    private Instant updatedAt;
 }

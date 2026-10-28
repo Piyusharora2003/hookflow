@@ -7,6 +7,7 @@ import com.hookflow.hookflow.common.queue.QueuePublishException;
 import com.hookflow.hookflow.filter.RequestIdFilter;
 import com.hookflow.hookflow.publisher.dto.PublishEventRequest;
 import com.hookflow.hookflow.publisher.dto.PublishEventResponse;
+import com.hookflow.hookflow.publisher.exception.IdempotencyConflictException;
 import com.hookflow.hookflow.publisher.persistence.exception.EventPersistenceException;
 import com.hookflow.hookflow.publisher.persistence.model.EventRecord;
 import com.hookflow.hookflow.publisher.persistence.port.EventStorePort;
@@ -22,6 +23,7 @@ import org.slf4j.MDC;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -33,6 +35,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class EventPublisherServiceImplTest {
@@ -45,10 +48,10 @@ class EventPublisherServiceImplTest {
 
     private EventPublisherServiceImpl eventPublisherService;
     private final String queueName = "test-events-queue";
+    private final UUID tenantId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
-        // Use 1 attempt or low backoff for fast testing
         eventPublisherService = new EventPublisherServiceImpl(
                 queueAdapter,
                 eventStorePort,
@@ -76,28 +79,27 @@ class EventPublisherServiceImplTest {
                 Instant.now()
         );
 
-        doAnswer(invocation -> {
-            EventRecord record = invocation.getArgument(0);
-            record.setId(101L);
-            return record;
-        }).when(eventStorePort).save(any(EventRecord.class));
+        doAnswer(invocation -> invocation.getArgument(0))
+                .when(eventStorePort).save(any(EventRecord.class));
 
-        PublishEventResponse response = eventPublisherService.publishEvent(request, "idempotency_key_1");
+        PublishEventResponse response = eventPublisherService.publishEvent(tenantId, request, "idempotency_key_1");
 
         assertNotNull(response);
-        assertEquals("req_abc123", response.eventId());
-        assertEquals("ACCEPTED", response.status());
+        assertNotNull(response.eventId());
+        assertEquals(EventStatus.PUBLISHED_TO_QUEUE.name(), response.status());
         assertEquals("order.completed", response.eventType());
         assertEquals("https://webhook.site/endpoint", response.destination());
 
-        // Verify event was saved to DB before queue publishing
+        // Verify event was saved to DB with PENDING_PUBLISH before queue publishing
         ArgumentCaptor<EventRecord> recordCaptor = ArgumentCaptor.forClass(EventRecord.class);
         verify(eventStorePort).save(recordCaptor.capture());
         EventRecord capturedRecord = recordCaptor.getValue();
+        assertEquals(tenantId, capturedRecord.getTenantId());
+        assertEquals("idempotency_key_1", capturedRecord.getIdempotencyKey());
         assertEquals("req_abc123", capturedRecord.getRequestId());
         assertEquals("order.completed", capturedRecord.getEventType());
         assertEquals("https://webhook.site/endpoint", capturedRecord.getDestination());
-        assertEquals(EventStatus.PUBLISHED, capturedRecord.getStatus());
+        assertEquals(EventStatus.PENDING_PUBLISH, capturedRecord.getStatus());
         assertEquals(request.payload(), capturedRecord.getPayload());
         assertEquals(request.tags(), capturedRecord.getTags());
 
@@ -108,15 +110,16 @@ class EventPublisherServiceImplTest {
 
         QueueMessage<PublishEventRequest> capturedMessage = queueCaptor.getValue();
         assertEquals("req_abc123", capturedMessage.getRequestId());
+        assertEquals(capturedRecord.getId().toString(), capturedMessage.getMessageId());
         assertEquals("order.completed", capturedMessage.getEventType());
         assertEquals(request, capturedMessage.getBody());
 
-        // Verify updateStatus was NOT called on success
-        verify(eventStorePort, never()).updateStatus(any(), any());
+        // Verify updateStatus was called on success to set PUBLISHED_TO_QUEUE
+        verify(eventStorePort).updateStatus(capturedRecord.getId(), EventStatus.PUBLISHED_TO_QUEUE);
     }
 
     @Test
-    void testPublishEventWhenQueuePublishFailsUpdatesStatusToPublishFailed() {
+    void testPublishEventWhenQueuePublishFailsUpdatesStatusToPublishFailedAndReturnsResponse() {
         PublishEventRequest request = new PublishEventRequest(
                 "order.completed",
                 "https://webhook.site/endpoint",
@@ -125,26 +128,48 @@ class EventPublisherServiceImplTest {
                 Instant.now()
         );
 
-        doAnswer(invocation -> {
-            EventRecord record = invocation.getArgument(0);
-            record.setId(202L);
-            return record;
-        }).when(eventStorePort).save(any(EventRecord.class));
+        doAnswer(invocation -> invocation.getArgument(0))
+                .when(eventStorePort).save(any(EventRecord.class));
 
         doThrow(new QueuePublishException("SQS down"))
                 .when(queueAdapter).publish(any(), eq(queueName));
 
-        QueuePublishException thrown = assertThrows(QueuePublishException.class, () ->
-                eventPublisherService.publishEvent(request, "idempotency_key_fail")
-        );
+        PublishEventResponse response = eventPublisherService.publishEvent(tenantId, request, "idempotency_key_fail");
 
-        assertNotNull(thrown);
-        // Verify DB record was saved initially
+        assertNotNull(response);
+        assertNotNull(response.eventId());
+        assertEquals(EventStatus.PUBLISH_FAILED.name(), response.status());
+
+        // Verify DB record was saved initially with PENDING_PUBLISH
         verify(eventStorePort).save(any(EventRecord.class));
         // Verify retry occurred (maxAttempts = 2)
         verify(queueAdapter, times(2)).publish(any(), eq(queueName));
         // Verify DB record status was updated to PUBLISH_FAILED with the saved ID
-        verify(eventStorePort).updateStatus(202L, EventStatus.PUBLISH_FAILED);
+        ArgumentCaptor<UUID> idCaptor = ArgumentCaptor.forClass(UUID.class);
+        verify(eventStorePort).updateStatus(idCaptor.capture(), eq(EventStatus.PUBLISH_FAILED));
+        assertEquals(response.eventId(), idCaptor.getValue().toString());
+    }
+
+    @Test
+    void testPublishEventDuplicateIdempotencyKeyThrowsConflictException() {
+        PublishEventRequest request = new PublishEventRequest(
+                "order.completed",
+                "https://webhook.site/endpoint",
+                Map.of("amount", 99.99),
+                List.of("production"),
+                Instant.now()
+        );
+
+        when(eventStorePort.existsByTenantAndIdempotencyKey(tenantId, "duplicate_key")).thenReturn(true);
+
+        IdempotencyConflictException thrown = assertThrows(IdempotencyConflictException.class, () ->
+                eventPublisherService.publishEvent(tenantId, request, "duplicate_key")
+        );
+
+        assertNotNull(thrown);
+        assertEquals("duplicate_key", thrown.getIdempotencyKey());
+        verify(eventStorePort, never()).save(any());
+        verify(queueAdapter, never()).publish(any(), any());
     }
 
     @Test
@@ -161,7 +186,7 @@ class EventPublisherServiceImplTest {
                 .when(eventStorePort).save(any(EventRecord.class));
 
         EventPersistenceException thrown = assertThrows(EventPersistenceException.class, () ->
-                eventPublisherService.publishEvent(request, "idempotency_key_fail")
+                eventPublisherService.publishEvent(tenantId, request, "idempotency_key_fail")
         );
 
         assertNotNull(thrown);

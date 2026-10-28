@@ -7,10 +7,12 @@ import com.hookflow.hookflow.common.queue.QueuePublishException;
 import com.hookflow.hookflow.filter.RequestIdFilter;
 import com.hookflow.hookflow.publisher.dto.PublishEventRequest;
 import com.hookflow.hookflow.publisher.dto.PublishEventResponse;
+import com.hookflow.hookflow.publisher.exception.IdempotencyConflictException;
 import com.hookflow.hookflow.publisher.persistence.model.EventRecord;
 import com.hookflow.hookflow.publisher.persistence.port.EventStorePort;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,7 @@ public class EventPublisherServiceImpl implements EventPublisherService {
     private final String queueName;
     private final RetryTemplate retryTemplate;
 
+    @Autowired
     public EventPublisherServiceImpl(
             QueueAdapter queueAdapter,
             EventStorePort eventStorePort,
@@ -65,39 +68,58 @@ public class EventPublisherServiceImpl implements EventPublisherService {
 
     @Override
     public PublishEventResponse publishEvent(
+            UUID tenantId,
             PublishEventRequest request,
             String idempotencyKey
     ) {
         String requestId = MDC.get(RequestIdFilter.MDC_REQUEST_ID_KEY);
 
+        if (idempotencyKey != null && tenantId != null) {
+            if (eventStorePort.existsByTenantAndIdempotencyKey(tenantId, idempotencyKey)) {
+                log.warn("Idempotency conflict for tenantId={} and key={}", tenantId, idempotencyKey);
+                throw new IdempotencyConflictException(idempotencyKey);
+            }
+        }
+
+        UUID eventId = UUID.randomUUID();
+        Instant now = Instant.now();
+
         EventRecord eventRecord = EventRecord.builder()
+                .id(eventId)
+                .tenantId(tenantId)
+                .idempotencyKey(idempotencyKey)
                 .requestId(requestId)
                 .eventType(request.eventType())
                 .destination(request.destination())
                 .payload(request.payload())
                 .tags(request.tags())
-                .status(EventStatus.PUBLISHED)
-                .createdAt(Instant.now())
-                .occurredAt(request.occurredAt())
+                .status(EventStatus.PENDING_PUBLISH)
+                .createdAt(now)
+                .updatedAt(now)
+                .occurredAt(request.occurredAt() != null ? request.occurredAt() : now)
                 .build();
 
-        log.debug("Persisting event before queue publish [requestId={}, eventType={}]", requestId, request.eventType());
+        log.debug("Persisting event before queue publish [id={}, requestId={}, eventType={}]",
+                eventId, requestId, request.eventType());
         eventStorePort.save(eventRecord);
 
         QueueMessage<PublishEventRequest> message = QueueMessage.<PublishEventRequest>builder()
                 .requestId(requestId)
-                .messageId(UUID.randomUUID().toString())
+                .messageId(eventId.toString())
                 .eventType(request.eventType())
-                .timestamp(Instant.now())
+                .timestamp(now)
                 .body(request)
                 .build();
 
-        log.debug("Publishing event to queue [requestId={}, queueName={}]", requestId, queueName);
+        log.debug("Publishing event to queue [id={}, requestId={}, queueName={}]", eventId, requestId, queueName);
+        boolean publishSucceeded = false;
         try {
             retryTemplate.execute(context -> {
                 queueAdapter.publish(message, queueName);
                 return null;
             });
+            publishSucceeded = true;
+            eventStorePort.updateStatus(eventRecord.getId(), EventStatus.PUBLISHED_TO_QUEUE);
         } catch (Exception ex) {
             log.error("Queue publishing failed after retries for event [id={}, requestId={}]. Updating status to PUBLISH_FAILED",
                     eventRecord.getId(), requestId, ex);
@@ -109,20 +131,20 @@ public class EventPublisherServiceImpl implements EventPublisherService {
                 log.error("Failed to update event status to PUBLISH_FAILED in database [id={}, requestId={}]: {}",
                         eventRecord.getId(), requestId, updateEx.getMessage(), updateEx);
             }
-            if (ex instanceof QueuePublishException qpe) {
-                throw qpe;
-            }
-            throw new QueuePublishException("Queue publish failed: " + ex.getMessage(), ex);
         }
 
+        String finalStatus = publishSucceeded
+                ? EventStatus.PUBLISHED_TO_QUEUE.name()
+                : EventStatus.PUBLISH_FAILED.name();
+
         return new PublishEventResponse(
-                requestId,
+                eventRecord.getId().toString(),
                 null,
                 request.eventType(),
                 request.destination(),
-                "ACCEPTED",
-                Instant.now(),
-                request.occurredAt(),
+                finalStatus,
+                now,
+                eventRecord.getOccurredAt(),
                 request.tags()
         );
     }

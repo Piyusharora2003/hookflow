@@ -2,10 +2,10 @@ spring:
   application:
     name: hookflow
   datasource:
-    url: ${DATABASE_URL}
-    username: ${DATABASE_USERNAME}
-    password: ${DATABASE_PASSWORD}
-    driver-class-name: ${DATABASE_DRIVER_CLASS_NAME}
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/hookflow}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+    driver-class-name: ${DATABASE_DRIVER_CLASS_NAME:org.postgresql.Driver}
 
 database:
   type: ${DATABASE_TYPE:postgres}
@@ -38,3 +38,8 @@ hookflow:
       region: ${HOOKFLOW_QUEUE_SQS_REGION:us-east-1}
       endpoint: ${HOOKFLOW_QUEUE_SQS_ENDPOINT:}
       queue-url: ${HOOKFLOW_QUEUE_SQS_QUEUE_URL:}
+  publisher:
+    recovery:
+      enabled: ${HOOKFLOW_PUBLISHER_RECOVERY_ENABLED:true}
+      interval-ms: ${HOOKFLOW_PUBLISHER_RECOVERY_INTERVAL_MS:30000}
+      batch-size: ${HOOKFLOW_PUBLISHER_RECOVERY_BATCH_SIZE:50}

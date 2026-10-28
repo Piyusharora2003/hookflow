@@ -1,0 +1,91 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-events-table
+      author: hookflow
+      changes:
+        - createTable:
+            tableName: events
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: tenant_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+              - column:
+                  name: idempotency_key
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: true
+              - column:
+                  name: request_id
+                  type: VARCHAR(128)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: event_type
+                  type: VARCHAR(128)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: destination
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: payload
+                  type: JSONB
+                  constraints:
+                    nullable: false
+              - column:
+                  name: tags
+                  type: JSONB
+                  constraints:
+                    nullable: true
+              - column:
+                  name: status
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: occurred_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: true
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+
+        - sql:
+            comment: Create partial unique index on (tenant_id, idempotency_key) for non-null idempotency keys
+            sql: CREATE UNIQUE INDEX uk_events_tenant_idempotency ON events (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+        - createIndex:
+            indexName: idx_events_tenant_created
+            tableName: events
+            columns:
+              - column:
+                  name: tenant_id
+              - column:
+                  name: created_at
+                  descending: true
+
+        - sql:
+            comment: Create index for finding PUBLISH_FAILED events for recovery
+            sql: CREATE INDEX idx_events_status_failed ON events (status, updated_at) WHERE status = 'PUBLISH_FAILED';
+
